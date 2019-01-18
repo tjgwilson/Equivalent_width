@@ -10,11 +10,13 @@ from scipy.interpolate import interp1d
 class that loads data and works out the equivilant width of the line profile
 """
 class equivWidth:
-    def __init__(self,input_file,x,y,order):
+
+    def __init__(self,input_file,x,y,order,wavelength):
         self.input_file = input_file
         self.x = x
         self.y = y
         self.order = order
+        self.wavelength = wavelength
 
     """
     Loads data from specified data input_file
@@ -24,14 +26,24 @@ class equivWidth:
         data = np.loadtxt(self.input_file)
         shape = np.shape(data)
         print("Input array size: {}".format(np.shape(data)))
+        data[:,self.x] = equivWidth.vel_2_wavelength(self,data[:,self.x])
+        plt.plot(data[:,0],data[:,1])
+        plt.show()
         return data
 
-    def plot_profile(self,data,func):
+
+    def vel_2_wavelength(self,velocity): #lamda is the central wavelength
+        c = 299792458.0
+        centre_freq = c / self.wavelength
+        return (c/(centre_freq*((c + velocity) / (c - velocity))))
+
+    def plot_profile(self,data,func,poly,width,continuum):
         plt.plot(data[:,self.x],data[:,self.y],'bx',markersize=5,label="Data")
         min = np.amin(data[:,self.x])
         max = np.amax(data[:,self.x])
         x = np.linspace(min,max, num=10*np.shape(data)[0], endpoint=True)
         plt.plot(x,func(x),'k',linewidth=1,label="Cubic fit")
+        plt.plot(x,poly(x),'r',linewidth=1,label="continuum fit")
         plt.legend()
         plt.show()
 
@@ -95,8 +107,9 @@ class equivWidth:
         data_cont = np.zeros((rows,2))
         data_cont[:,0] = data[:,self.x]
 
-        #data_cont[:,1] = np.subtract(data[:,1],poly(data_cont[:,0])) #subtract continuum from
-        return(poly)
+        flat = np.divide(continuum[:,1],poly(continuum[:,0])) #divide continuum level to find average
+        mean_continuum = np.mean(flat)
+        return(poly,mean_continuum)
 
     def trapezium(self,func,lower,upper):
         n = int(abs(upper-lower)) * 10
@@ -109,24 +122,27 @@ class equivWidth:
             area += (2.0 * y_vals[i])
         area += (y_vals[0] + y_vals[-1])
         area *= (0.5 * diff)
+
         return area
-
-
-
-
-        #Integral f(x) ~ 0.5 * strip size * ((f(0) + f(last)) + 2 * (sum of y terms))
 
     def calc_width(self):
         data = equivWidth.load_data(self)
         func = equivWidth.interpCurve(self,data)
-        poly = equivWidth.find_baseline(self,data,func)
+        poly,continuum = equivWidth.find_baseline(self,data,func)
+
+        x_min = np.amin(data[:,self.x])
+        x_max = np.amax(data[:self.y])
+        prof_area = equivWidth.trapezium(self,func,x_min,x_max)
+        prof_area -= equivWidth.trapezium(self,poly,x_min,x_max)
+        width = prof_area / continuum
+
+        print(width)
+        equivWidth.plot_profile(self,data,func,poly,width,continuum)
+        return width
 
 
-        prof_area = equivWidth.trapezium(self,func,0,500)
-        prof_area -= equivWidth.trapezium(self,poly,0,500)
-        print(prof_area)
-        #equivWidth.plot_profile(self,data,func)
-
-
-
-a = equivWidth("halpha_035_12818.dat",0,1,6).calc_width()
+x_col = 0
+y_col = 1
+order = 6
+wavelength = 128.18
+a = equivWidth("halpha_035_12818.dat",x_col,y_col,order,wavelength).calc_width()
