@@ -10,10 +10,11 @@ from scipy.interpolate import interp1d
 class that loads data and works out the equivilant width of the line profile
 """
 class equivWidth:
-    def __init__(self,input_file,x,y):
+    def __init__(self,input_file,x,y,order):
         self.input_file = input_file
         self.x = x
         self.y = y
+        self.order = order
 
     """
     Loads data from specified data input_file
@@ -80,7 +81,7 @@ class equivWidth:
 
         continuum = np.zeros((length,2))
         count = 0
-        for i in range(0,bounds[0],1):
+        for i in range(0,bounds[0],1):          #write continuum data to array for polyfit
             continuum[count,0] = data[i,self.x]
             continuum[count,1] = data[i,self.y]
             count += 1
@@ -89,31 +90,43 @@ class equivWidth:
             continuum[count,1] = data[i,self.y]
             count += 1
 
-        order = 2
-        coef = np.polyfit(continuum[:,0],continuum[:,1],order)
-
+        coef = np.polyfit(continuum[:,0],continuum[:,1],self.order)
+        poly = np.poly1d(coef)
         data_cont = np.zeros((rows,2))
         data_cont[:,0] = data[:,self.x]
 
-        x=np.linspace(-500,500,100,)
+        #data_cont[:,1] = np.subtract(data[:,1],poly(data_cont[:,0])) #subtract continuum from
+        return(poly)
 
-        # for i in range(1):
-        #     cont = 0.0
-        #     for j in range(order,-1,-1):
-        #         cont += coef[j]*np.power(data_cont[i,0],j)
-        #         print(data_cont[i,0],cont)
-        #     data_cont[i,1] = data[i,1] - cont
+    def trapezium(self,func,lower,upper):
+        n = int(abs(upper-lower)) * 10
+        diff = abs(upper-lower)/n
+        y_vals= np.zeros((n))
+        x_vals = np.linspace(lower,upper,n,endpoint=False)
+        y_vals = func(x_vals)
+        area = 0.0
+        for i in range(1,n-1,1):
+            area += (2.0 * y_vals[i])
+        area += (y_vals[0] + y_vals[-1])
+        area *= (0.5 * diff)
+        return area
 
-        #plt.plot(continuum[:,0],continuum[:,1],'r*') #debugging
-        plt.plot(data_cont[:,0],data_cont[:,1])
-        plt.show()
 
+
+
+        #Integral f(x) ~ 0.5 * strip size * ((f(0) + f(last)) + 2 * (sum of y terms))
 
     def calc_width(self):
         data = equivWidth.load_data(self)
         func = equivWidth.interpCurve(self,data)
-        equivWidth.find_baseline(self,data,func)
+        poly = equivWidth.find_baseline(self,data,func)
+
+
+        prof_area = equivWidth.trapezium(self,func,0,500)
+        prof_area -= equivWidth.trapezium(self,poly,0,500)
+        print(prof_area)
         #equivWidth.plot_profile(self,data,func)
 
 
-a = equivWidth("halpha_035_12818.dat",0,1).calc_width()
+
+a = equivWidth("halpha_035_12818.dat",0,1,6).calc_width()
