@@ -26,16 +26,13 @@ class equivWidth:
         data = np.loadtxt(self.input_file)
         shape = np.shape(data)
         print("Input array size: {}".format(np.shape(data)))
-        data[:,self.x] = equivWidth.vel_2_wavelength(self,data[:,self.x])
-        plt.plot(data[:,0],data[:,1])
-        plt.show()
         return data
 
 
-    def vel_2_wavelength(self,velocity): #lamda is the central wavelength
+    def vel_2_wavelength(self,vel): #lamda is the central wavelength
         c = 299792458.0
-        centre_freq = c / self.wavelength
-        return (c/(centre_freq*((c + velocity) / (c - velocity))))
+        ratio = (c + vel) / (c - vel)
+        return self.wavelength + (self.wavelength / ratio)
 
     def plot_profile(self,data,func,poly,width,continuum):
         plt.plot(data[:,self.x],data[:,self.y],'bx',markersize=5,label="Data")
@@ -107,13 +104,12 @@ class equivWidth:
         data_cont = np.zeros((rows,2))
         data_cont[:,0] = data[:,self.x]
 
-        flat = np.divide(continuum[:,1],poly(continuum[:,0])) #divide continuum level to find average
-        mean_continuum = np.mean(flat)
-        return(poly,mean_continuum)
+        return poly
 
     def trapezium(self,func,lower,upper):
         n = int(abs(upper-lower)) * 10
         diff = abs(upper-lower)/n
+
         y_vals= np.zeros((n))
         x_vals = np.linspace(lower,upper,n,endpoint=False)
         y_vals = func(x_vals)
@@ -128,17 +124,37 @@ class equivWidth:
     def calc_width(self):
         data = equivWidth.load_data(self)
         func = equivWidth.interpCurve(self,data)
-        poly,continuum = equivWidth.find_baseline(self,data,func)
+        poly = equivWidth.find_baseline(self,data,func)
 
         x_min = np.amin(data[:,self.x])
-        x_max = np.amax(data[:self.y])
+        x_max = np.amax(data[:,self.x])
         prof_area = equivWidth.trapezium(self,func,x_min,x_max)
+
         prof_area -= equivWidth.trapezium(self,poly,x_min,x_max)
+        continuum = np.mean(poly(data[:,0]))
         width = prof_area / continuum
 
-        print(width)
+        print("width ",width)
+        print("prof_area ", prof_area)
         equivWidth.plot_profile(self,data,func,poly,width,continuum)
         return width
+
+    def test_data(self):
+        count = -50
+        y=np.zeros((100,2))
+        for i in range(100):
+            if(count<=-5 or count >5):
+                y[i,0] = count
+                y[i,1] = 2
+                count += 1
+            else:
+                y[i,0] = count
+                y[i,1] = 12.
+                count += 1
+            np.savetxt('test.out',y)
+
+
+
 
 
 x_col = 0
