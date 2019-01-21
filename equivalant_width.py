@@ -164,6 +164,7 @@ class equivWidth:
         print("Equivilant width {} for continuum of {}".format(width,continuum))
         equivWidth.plot_profile(self,data,func,poly,width,continuum)
         return width
+
     """
     creates a test profile to test code on
     """
