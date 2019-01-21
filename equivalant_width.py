@@ -11,12 +11,13 @@ class that loads data and works out the equivilant width of the line profile
 """
 class equivWidth:
 
-    def __init__(self,input_file,x,y,order,wavelength):
+    def __init__(self,input_file,x,y,order,wavelength,doppler):
         self.input_file = input_file
         self.x = x
         self.y = y
         self.order = order
         self.wavelength = wavelength
+        self.doppler = doppler
 
     """
     Loads data from specified data input_file
@@ -26,32 +27,46 @@ class equivWidth:
         data = np.loadtxt(self.input_file)
         shape = np.shape(data)
         print("Input array size: {}".format(np.shape(data)))
+        if(self.doppler):
+            print("Converting vecocity to wavelength for the central wavelength {}".format(self.wavelength))
+            data[:,self.x] = equivWidth.vel_2_wavelength(self,data[:,self.x])
         return data
-
-
-    def vel_2_wavelength(self,vel): #lamda is the central wavelength
+    """
+    converts velocity to wavelength give a central wavelength, class arguement doppler should be set to true for this
+    """
+    def vel_2_wavelength(self,vel): #lambda is the central wavelength
         c = 299792458.0
-        ratio = (c + vel) / (c - vel)
-        return self.wavelength + (self.wavelength / ratio)
-
+        wavelength = self.wavelength*(c - vel) / c
+        return wavelength
+    """
+    Plots the profile, continuum fit and curve fit and data for visual inspection
+    """
     def plot_profile(self,data,func,poly,width,continuum):
-        plt.plot(data[:,self.x],data[:,self.y],'bx',markersize=5,label="Data")
+        fig,ax = plt.subplots()
+        ax.plot(data[:,self.x],data[:,self.y],'bx',markersize=5,label="Data")
         min = np.amin(data[:,self.x])
         max = np.amax(data[:,self.x])
         x = np.linspace(min,max, num=10*np.shape(data)[0], endpoint=True)
-        plt.plot(x,func(x),'k',linewidth=1,label="Cubic fit")
-        plt.plot(x,poly(x),'r',linewidth=1,label="continuum fit")
-        plt.legend()
+        ax.plot(x,func(x),'k',linewidth=1,label="Cubic fit")
+        ax.plot(x,poly(x),'r',linewidth=1,label="continuum fit")
+        ax.ticklabel_format(useOffset=False, style='plain')
+        ax.legend()
         plt.show()
-
+    """
+    uses a scipy routine to interp1d the function of the line of the profile using a cubic interpolations
+    """
     def interpCurve(self,data):
         func = interp1d(data[:,self.x], data[:,self.y], kind='cubic')
         return func
-
+    """
+    find the limits of the profile, when running average of the flux (given by of 5% of the x values) changes by more than dif. default set to 0.1%. The code runs allong the x values until the flux changes by dif where it sets the beginining/end of the line profile. returns the indeces of the array of upper and lower positions
+    """
     def find_line_limits(self,data,func):
         dif = 0.001
         rows = np.shape(data)[0]
         av_len = int(0.05 * rows)
+        if(av_len == 0):
+            av_len = 3
         upper_bound = rows - 1
         lower_bound = 0
         run_av = 0.0
@@ -82,10 +97,11 @@ class equivWidth:
                     upper_bound = i
                     break
         return(lower_bound,upper_bound)
-
-    def find_baseline(self,data,func):
+    """
+    using the limits found in 'find_line_limits' it fits a polynomial to the continuum
+    """
+    def find_baseline(self,data,func,bounds):
         rows = np.shape(data)[0]
-        bounds = equivWidth.find_line_limits(self,data,func)
         length =  bounds[0] + (rows - bounds[1])
 
         continuum = np.zeros((length,2))
@@ -105,9 +121,14 @@ class equivWidth:
         data_cont[:,0] = data[:,self.x]
 
         return poly
-
+    """
+    Uses trapzium rule to integrate the area of a given function between two limits
+    """
     def trapezium(self,func,lower,upper):
+
         n = int(abs(upper-lower)) * 10
+        if(n <= 0):
+            n = 1000
         diff = abs(upper-lower)/n
 
         y_vals= np.zeros((n))
@@ -116,34 +137,43 @@ class equivWidth:
         area = 0.0
         for i in range(1,n-1,1):
             area += (2.0 * y_vals[i])
-        area += (y_vals[0] + y_vals[-1])
+        #area += (y_vals[0] + y_vals[-1])
         area *= (0.5 * diff)
 
         return area
-
+    """
+    calls the relevant functions to return line width.
+    calcuates area under line profile and subtracts the area under the continuum then divides by the average continuum level to find the equivilant width
+    """
     def calc_width(self):
         data = equivWidth.load_data(self)
         func = equivWidth.interpCurve(self,data)
-        poly = equivWidth.find_baseline(self,data,func)
+        bounds = equivWidth.find_line_limits(self,data,func)
+        poly = equivWidth.find_baseline(self,data,func,bounds)
 
-        x_min = np.amin(data[:,self.x])
-        x_max = np.amax(data[:,self.x])
+        x_min = data[bounds[0],self.x]
+        x_max = data[bounds[1],self.x]
+        print(x_min,x_max)
         prof_area = equivWidth.trapezium(self,func,x_min,x_max)
 
         prof_area -= equivWidth.trapezium(self,poly,x_min,x_max)
         continuum = np.mean(poly(data[:,0]))
         width = prof_area / continuum
 
-        print("width ",width)
-        print("prof_area ", prof_area)
+        print("area of line ",prof_area)
+        print("Equivilant width {} for continuum of {}".format(width,continuum))
         equivWidth.plot_profile(self,data,func,poly,width,continuum)
         return width
-
+    """
+    creates a test profile to test code on
+    """
     def test_data(self):
-        count = -50
-        y=np.zeros((100,2))
-        for i in range(100):
-            if(count<=-5 or count >5):
+        count = -5000
+
+        n=10000
+        y=np.zeros((n,2))
+        for i in range(n):
+            if(count<=-2000 or count >2000):
                 y[i,0] = count
                 y[i,1] = 2
                 count += 1
@@ -151,7 +181,8 @@ class equivWidth:
                 y[i,0] = count
                 y[i,1] = 12.
                 count += 1
-            np.savetxt('test.out',y)
+
+        np.savetxt('test.out',y)
 
 
 
@@ -159,6 +190,7 @@ class equivWidth:
 
 x_col = 0
 y_col = 1
-order = 6
-wavelength = 128.18
-a = equivWidth("halpha_035_12818.dat",x_col,y_col,order,wavelength).calc_width()
+order = 2
+wavelength = 1281.8
+a = equivWidth("halpha_035_12818.dat",x_col,y_col,order,wavelength,True).calc_width()
+print(a)
