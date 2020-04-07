@@ -26,9 +26,9 @@ class equivWidth:
     def load_data(self):
         data = np.loadtxt(self.input_file)
         shape = np.shape(data)
-        print("Input array size: {}".format(np.shape(data)))
+        #print("Input array size: {}".format(np.shape(data)))
         if(self.doppler):
-            print("Converting vecocity to wavelength for the central wavelength {}".format(self.wavelength))
+            #print("Converting vecocity to wavelength for the central wavelength {}".format(self.wavelength))
             data[:,self.x] = equivWidth.vel_2_wavelength(self,data[:,self.x])
         return data
     """
@@ -61,7 +61,7 @@ class equivWidth:
     """
     find the limits of the profile, when running average of the flux (given by of 5% of the x values) changes by more than dif. default set to 0.1%. The code runs allong the x values until the flux changes by dif where it sets the beginining/end of the line profile. returns the indeces of the array of upper and lower positions
     """
-    def find_line_limits(self,data,func):
+    def find_line_limits(self,data):
         dif = 0.001
         rows = np.shape(data)[0]
         av_len = int(0.05 * rows)
@@ -100,7 +100,7 @@ class equivWidth:
     """
     using the limits found in 'find_line_limits' it fits a polynomial to the continuum
     """
-    def find_baseline(self,data,func,bounds):
+    def find_baseline(self,data,bounds):
         rows = np.shape(data)[0]
         length =  bounds[0] + (rows - bounds[1])
 
@@ -122,11 +122,36 @@ class equivWidth:
 
         return poly
     """
+    finds absorption features, distinguishing them as going below the continuum
+    """
+    def findAbsorption(self,data,continuum):
+        # check = np.zeros((len(data[bounds[0]:bounds[1]])))
+        check = np.ones(len(data))
+        count = 0
+        sensitivity = 0.01
+        for i in range(len(data)):
+            dif = data[i,self.y] - continuum(data[i,self.x])
+            if (dif < -sensitivity):
+                check[count] = -1.0
+            count += 1
+        numAbs = 0
+        start = 0
+        end = 0
+        startEndXY = []
+        for i in range(1,len(check)):
+            if((check[i-1] != check[i]) and (check[i] == -1.0)):
+                numAbs += 1
+                start = i
+            if((check[i-1] != check[i]) and (check[i] == 1.0)):
+                end = i-1
+                startEndXY.append([data[start,self.x],data[end,self.x]])
+        return numAbs,startEndXY
+    """
     Uses trapzium rule to integrate the area of a given function between two limits
     """
     def trapezium(self,func,lower,upper):
 
-        n = int(abs(upper-lower)) * 10
+        n = int(abs(upper-lower)) * 100
         if(n <= 0):
             n = 1000
         diff = abs(upper-lower)/n
@@ -137,7 +162,7 @@ class equivWidth:
         area = 0.0
         for i in range(1,n-1,1):
             area += (2.0 * y_vals[i])
-        #area += (y_vals[0] + y_vals[-1])
+        area += (y_vals[0] + y_vals[-1])
         area *= (0.5 * diff)
 
         return area
@@ -145,25 +170,43 @@ class equivWidth:
     calls the relevant functions to return line width.
     calcuates area under line profile and subtracts the area under the continuum then divides by the average continuum level to find the equivilant width
     """
-    def calc_width(self):
-        data = equivWidth.load_data(self)
-        func = equivWidth.interpCurve(self,data)
-        bounds = equivWidth.find_line_limits(self,data,func)
-        poly = equivWidth.find_baseline(self,data,func,bounds)
+    def fitGaussian(self):
+        pass
 
-        x_min = data[bounds[0],self.x]
-        x_max = data[bounds[1],self.x]
-        print(x_min,x_max)
-        prof_area = equivWidth.trapezium(self,func,x_min,x_max)
+    def calc_width(self,method="interpolate"):
+        if(method == "interpolate"):
+            data = equivWidth.load_data(self)
+            func = equivWidth.interpCurve(self,data)
+            bounds = equivWidth.find_line_limits(self,data)
+            poly = equivWidth.find_baseline(self,data,bounds)
+            num,startstop = equivWidth.findAbsorption(self,data,poly)
 
-        prof_area -= equivWidth.trapezium(self,poly,x_min,x_max)
-        continuum = np.mean(poly(data[:,0]))
-        width = prof_area / continuum
+            x_min = data[bounds[0],self.x]
+            x_max = data[bounds[1],self.x]
+            absorption_widths = np.zeros((num))
 
-        print("area of line ",prof_area)
-        print("Equivilant width {} for continuum of {}".format(width,continuum))
-        equivWidth.plot_profile(self,data,func,poly,width,continuum)
-        return width
+            for i in range(num):
+                xStart = startstop[i][0]
+                xStop = startstop[i][1]
+                absorption_prof_area = equivWidth.trapezium(self,poly,xStart,xStop)
+                absorption_prof_area -= equivWidth.trapezium(self,func,xStart,xStop)
+                continuum = np.mean(poly(data[:,0]))
+                absorption_widths[i] = absorption_prof_area / continuum
+
+            total_prof_area = equivWidth.trapezium(self,poly,x_min,x_max)
+            total_prof_area -= equivWidth.trapezium(self,func,x_min,x_max)
+            continuum = np.mean(poly(data[:,0]))
+            total_width = total_prof_area / continuum
+
+            emission_width = total_width + np.sum(absorption_widths)
+            # equivWidth.plot_profile(self,data,func,poly,total_width,continuum)
+            return total_width,emission_width,absorption_widths
+
+        elif(method == "guassian"):
+            data = equivWidth.load_data(self)
+            bounds = equivWidth.find_line_limits(self,data)
+            baseline = equivWidth.find_baseline(self,data,bounds)
+
 
     """
     creates a test profile to test code on
@@ -189,9 +232,10 @@ class equivWidth:
 
 
 
+
 x_col = 0
 y_col = 1
 order = 2
 wavelength = 1281.8
-a = equivWidth("halpha_035_12818.dat",x_col,y_col,order,wavelength,True).calc_width()
+a = equivWidth("halpha_035_12818.dat",x_col,y_col,order,wavelength,True).calc_width()[0]
 print(a)
